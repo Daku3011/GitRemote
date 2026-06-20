@@ -20,6 +20,16 @@
       "package": "com.dwarkesh3011.mobileapp",
       "usesCleartextTraffic": true
     },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
     },
