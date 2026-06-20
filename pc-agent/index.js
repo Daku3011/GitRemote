@@ -2,37 +2,50 @@ import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
+import { fileURLToPath } from 'url';
 import simpleGit from 'simple-git';
 import { Bonjour } from 'bonjour-service';
 
-// Load configuration
-const configPath = path.resolve('config.json');
-const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function loadConfig() {
+  const configPath = path.resolve(__dirname, 'config.json');
+  try {
+    if (!fs.existsSync(configPath)) {
+      const defaultConfig = { port: 3011, scanDir: os.homedir() };
+      console.log(`config.json not found at ${configPath}, using defaults. Create one to customize.`);
+      return defaultConfig;
+    }
+    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch (err) {
+    console.error(`Failed to load config.json: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+const config = loadConfig();
 const PORT = config.port || 3011;
-const SCAN_DIR = config.scanDir || 'C:\\Users\\rdwar\\Documents';
+const SCAN_DIR = config.scanDir || os.homedir();
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
-// Generate pairing code & auth token
 const PAIRING_CODE = Math.floor(1000 + Math.random() * 9000).toString();
 const AUTH_TOKEN = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
 
 console.log(`\n=============================================`);
-console.log(`🚀 GitMobileToPC Server starting...`);
-console.log(`📁 Scanning directory: ${SCAN_DIR}`);
-console.log(`🔌 Port: ${PORT}`);
-console.log(`🔑 Pairing Code: ${PAIRING_CODE}`);
+console.log(`GitMobileToPC Server starting...`);
+console.log(`Scanning directory: ${SCAN_DIR}`);
+console.log(`Port: ${PORT}`);
+console.log(`Pairing Code: ${PAIRING_CODE}`);
 console.log(`=============================================\n`);
 
-// Helper: Scan for git repos up to 2 directories deep
 function findGitRepos(dir, depth = 0, maxDepth = 2) {
   let repos = [];
   try {
     const files = fs.readdirSync(dir, { withFileTypes: true });
-    
-    // Check if current directory has a .git folder
     const isGit = files.some(file => file.isDirectory() && file.name === '.git');
     if (isGit) {
       repos.push({
@@ -56,13 +69,18 @@ function findGitRepos(dir, depth = 0, maxDepth = 2) {
   return repos;
 }
 
-// Map repo ID back to full path
 function getRepoPath(id) {
   try {
     return Buffer.from(id, 'base64url').toString('utf8');
   } catch (err) {
     return null;
   }
+}
+
+function toBool(val) {
+  if (val === true || val === 'true') return true;
+  if (val === false || val === 'false') return false;
+  return Boolean(val);
 }
 
 // Middleware: Bearer token verification
@@ -92,7 +110,7 @@ app.get('/api/workspaces', async (req, res) => {
   try {
     const repos = findGitRepos(SCAN_DIR);
     const result = [];
-    
+
     for (const repo of repos) {
       try {
         const git = simpleGit(repo.path);
@@ -125,8 +143,7 @@ app.get('/api/workspaces/:id/status', async (req, res) => {
   try {
     const git = simpleGit(repoPath);
     const status = await git.status();
-    
-    // Parse staged/unstaged status
+
     const files = status.files.map(f => {
       const staged = f.index !== ' ' && f.index !== '?';
       let fileStatus = 'modified';
@@ -162,7 +179,7 @@ app.get('/api/workspaces/:id/status', async (req, res) => {
 app.get('/api/workspaces/:id/diff', async (req, res) => {
   const repoPath = getRepoPath(req.params.id);
   const { file, staged } = req.query;
-  
+
   if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
   if (!file) return res.status(400).json({ error: 'File path required' });
 
@@ -182,7 +199,7 @@ app.get('/api/workspaces/:id/diff', async (req, res) => {
         diffText = 'Binary or unreadable file content.';
       }
     } else {
-      if (staged === 'true') {
+      if (toBool(staged)) {
         diffText = await git.diff(['--staged', '--', file]);
       } else {
         diffText = await git.diff(['--', file]);
@@ -201,7 +218,7 @@ app.get('/api/workspaces/:id/diff', async (req, res) => {
 // Stage or unstage files
 app.post('/api/workspaces/:id/stage', async (req, res) => {
   const repoPath = getRepoPath(req.params.id);
-  const { files, stage } = req.body; // stage: boolean
+  const { files, stage } = req.body;
 
   if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
   if (!files || !Array.isArray(files)) return res.status(400).json({ error: 'Files array required' });
@@ -245,7 +262,7 @@ app.post('/api/workspaces/:id/push', async (req, res) => {
     const git = simpleGit(repoPath);
     const status = await git.status();
     const branch = status.current;
-    
+
     const output = await git.push('origin', branch);
     res.json({ success: true, output });
   } catch (err) {
@@ -253,21 +270,214 @@ app.post('/api/workspaces/:id/push', async (req, res) => {
   }
 });
 
+// Pull latest changes from remote
+app.post('/api/workspaces/:id/pull', async (req, res) => {
+  const repoPath = getRepoPath(req.params.id);
+  if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
+
+  try {
+    const git = simpleGit(repoPath);
+    const output = await git.pull();
+    res.json({ success: true, output });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Fetch from remote
+app.post('/api/workspaces/:id/fetch', async (req, res) => {
+  const repoPath = getRepoPath(req.params.id);
+  if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
+
+  try {
+    const git = simpleGit(repoPath);
+    const output = await git.fetch();
+    res.json({ success: true, output });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List branches
+app.get('/api/workspaces/:id/branches', async (req, res) => {
+  const repoPath = getRepoPath(req.params.id);
+  if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
+
+  try {
+    const git = simpleGit(repoPath);
+    const branches = await git.branch();
+    const result = Object.entries(branches.branches).map(([name, info]) => ({
+      name,
+      current: info.current,
+      commit: info.commit,
+      label: info.label
+    }));
+    res.json({ branches: result, current: branches.current });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Checkout a branch
+app.post('/api/workspaces/:id/branches/checkout', async (req, res) => {
+  const repoPath = getRepoPath(req.params.id);
+  const { branch, create } = req.body;
+
+  if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
+  if (!branch) return res.status(400).json({ error: 'Branch name required' });
+
+  try {
+    const git = simpleGit(repoPath);
+    const args = create ? ['-b', branch] : [branch];
+    const output = await git.checkout(args);
+    res.json({ success: true, output });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a branch
+app.delete('/api/workspaces/:id/branches/:name', async (req, res) => {
+  const repoPath = getRepoPath(req.params.id);
+  const branchName = req.params.name;
+
+  if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
+
+  try {
+    const git = simpleGit(repoPath);
+    const output = await git.branch(['-D', branchName]);
+    res.json({ success: true, output });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get commit log
+app.get('/api/workspaces/:id/log', async (req, res) => {
+  const repoPath = getRepoPath(req.params.id);
+  const { count = 20, branch } = req.query;
+
+  if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
+
+  try {
+    const git = simpleGit(repoPath);
+    const logOptions = { maxCount: parseInt(count) || 20 };
+    if (branch) logOptions.from = branch;
+    const log = await git.log(logOptions);
+    res.json({
+      total: log.total,
+      latest: log.latest,
+      commits: log.all.map(c => ({
+        hash: c.hash,
+        date: c.date,
+        message: c.message,
+        author_name: c.author_name,
+        author_email: c.author_email,
+        refs: c.refs
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Stash list
+app.get('/api/workspaces/:id/stash', async (req, res) => {
+  const repoPath = getRepoPath(req.params.id);
+  if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
+
+  try {
+    const git = simpleGit(repoPath);
+    const list = await git.stashList();
+    res.json({
+      stashes: list.all.map(s => ({
+        hash: s.hash,
+        date: s.date,
+        message: s.message
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Stash save
+app.post('/api/workspaces/:id/stash', async (req, res) => {
+  const repoPath = getRepoPath(req.params.id);
+  const { message } = req.body;
+
+  if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
+
+  try {
+    const git = simpleGit(repoPath);
+    const args = message ? ['push', '-m', message] : ['push'];
+    await git.stash(args);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Stash pop
+app.post('/api/workspaces/:id/stash/pop', async (req, res) => {
+  const repoPath = getRepoPath(req.params.id);
+  if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
+
+  try {
+    const git = simpleGit(repoPath);
+    await git.stash(['pop']);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Stash drop
+app.post('/api/workspaces/:id/stash/drop', async (req, res) => {
+  const repoPath = getRepoPath(req.params.id);
+  if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
+
+  try {
+    const git = simpleGit(repoPath);
+    await git.stash(['drop']);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Start server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Server listening on http://0.0.0.0:${PORT}`);
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server listening on http://0.0.0.0:${PORT}`);
 });
 
 // Advertise Bonjour/mDNS service
+let bonjour;
 try {
-  const bonjour = new Bonjour();
+  bonjour = new Bonjour();
   bonjour.publish({
     name: 'GitMobileToPC Server',
     type: 'gitmobiletopc',
     port: PORT,
-    txt: { version: '1.0.0' }
+    txt: { version: '2.0.0' }
   });
-  console.log(`📡 Bonjour mDNS advertising: 'GitMobileToPC Server' (type: gitmobiletopc, port: ${PORT})`);
+  console.log(`Bonjour mDNS advertising: 'GitMobileToPC Server' (type: gitmobiletopc, port: ${PORT})`);
 } catch (err) {
-  console.log(`⚠️ Failed to start Bonjour discovery advertisement: ${err.message}`);
+  console.log(`Warning: Failed to start Bonjour discovery advertisement: ${err.message}`);
 }
+
+// Graceful shutdown
+function shutdown(signal) {
+  console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+  if (bonjour) {
+    try { bonjour.unpublishAll(); bonjour.destroy(); } catch (e) {}
+  }
+  server.close(() => {
+    console.log('Server closed.');
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 5000);
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
