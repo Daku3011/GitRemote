@@ -1,0 +1,16 @@
+{
+  "name": "git-mobile-to-pc-agent",
+  "version": "1.0.0",
+  "description": "PC Agent server for GitMobileToPC",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "simple-git": "^3.24.0",
+    "bonjour-service": "^1.2.1"
+  }
+}

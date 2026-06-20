@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Local configuration
+pc-agent/config.json
+
+# Expo build and cache
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native keys
+*.jks
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+
+# OS logs and store files
+.DS_Store
+*.log
+npm-debug.*
+yarn-debug.*
+yarn-error.*
