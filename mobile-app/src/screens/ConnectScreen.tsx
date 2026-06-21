@@ -7,7 +7,8 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
+  Image
 } from 'react-native';
 import { COLORS } from '../utils/theme';
 import { Input } from '../components/Input';
@@ -92,6 +93,15 @@ export const ConnectScreen: React.FC<ConnectScreenProps> = ({
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
+        <View style={styles.logoHeader}>
+          <Image
+            source={require('../../assets/logo.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
+          <Text style={styles.logoText}>GitRemote</Text>
+        </View>
+
         <View style={styles.modeTabs}>
           <TouchableOpacity
             style={[styles.modeTabButton, connectionMode === 'pc' ? styles.modeTabActive : {}]}
@@ -204,6 +214,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
+  },
+  logoHeader: {
+    alignItems: 'center',
+    marginBottom: 24,
+    marginTop: 10,
+  },
+  logoImage: {
+    width: 85,
+    height: 85,
+    marginBottom: 8,
+  },
+  logoText: {
+    color: COLORS.text,
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: 0.5,
   },
   scrollContainer: {
     padding: 20,

@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "mobile-app",
-    "slug": "mobile-app",
+    "name": "GitRemote",
+    "slug": "GitRemote",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -17,7 +17,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.dwarkesh3011.mobileapp",
+      "package": "com.dwarkesh3011.gitremote",
       "usesCleartextTraffic": true
     },
     "plugins": [
