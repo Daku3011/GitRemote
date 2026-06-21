@@ -32,20 +32,36 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
+// Request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    let statusColor = '\x1b[32m'; // Green
+    if (res.statusCode >= 400) statusColor = '\x1b[31m'; // Red
+    else if (res.statusCode >= 300) statusColor = '\x1b[33m'; // Yellow
+
+    console.log(
+      `[${new Date().toLocaleTimeString()}] ${req.method} ${req.originalUrl} - ${statusColor}${res.statusCode}\x1b[0m (${duration}ms)`
+    );
+  });
+  next();
+});
+
 const PAIRING_CODE = Math.floor(1000 + Math.random() * 9000).toString();
 const AUTH_TOKEN = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
 
-console.log(`\n=============================================`);
-console.log(`GitMobileToPC Server starting...`);
-console.log(`Scanning directory: ${SCAN_DIR}`);
-console.log(`Port: ${PORT}`);
-console.log(`Pairing Code: ${PAIRING_CODE}`);
-console.log(`=============================================\n`);
+console.log(`\x1b[36m=============================================\x1b[0m`);
+console.log(`\x1b[1m🚀 GitMobileToPC Server starting...\x1b[0m`);
+console.log(`📁 Scanning directory: \x1b[33m${SCAN_DIR}\x1b[0m`);
+console.log(`🔌 Port: \x1b[32m${PORT}\x1b[0m`);
+console.log(`🔑 Pairing Code: \x1b[1m\x1b[35m${PAIRING_CODE}\x1b[0m`);
+console.log(`\x1b[36m=============================================\x1b[0m\n`);
 
-function findGitRepos(dir, depth = 0, maxDepth = 2) {
+async function findGitRepos(dir, depth = 0, maxDepth = 2) {
   let repos = [];
   try {
-    const files = fs.readdirSync(dir, { withFileTypes: true });
+    const files = await fs.promises.readdir(dir, { withFileTypes: true });
     const isGit = files.some(file => file.isDirectory() && file.name === '.git');
     if (isGit) {
       repos.push({
@@ -57,10 +73,15 @@ function findGitRepos(dir, depth = 0, maxDepth = 2) {
     }
 
     if (depth < maxDepth) {
+      const promises = [];
       for (const file of files) {
         if (file.isDirectory() && file.name !== 'node_modules' && !file.name.startsWith('.')) {
-          repos = repos.concat(findGitRepos(path.join(dir, file.name), depth + 1, maxDepth));
+          promises.push(findGitRepos(path.join(dir, file.name), depth + 1, maxDepth));
         }
+      }
+      const results = await Promise.all(promises);
+      for (const result of results) {
+        repos = repos.concat(result);
       }
     }
   } catch (err) {
@@ -108,7 +129,7 @@ app.post('/api/pair', (req, res) => {
 // List all repositories
 app.get('/api/workspaces', async (req, res) => {
   try {
-    const repos = findGitRepos(SCAN_DIR);
+    const repos = await findGitRepos(SCAN_DIR);
     const result = [];
 
     for (const repo of repos) {
@@ -215,6 +236,95 @@ app.get('/api/workspaces/:id/diff', async (req, res) => {
   }
 });
 
+// List directory entries or read file content within a workspace
+app.get('/api/workspaces/:id/contents', async (req, res) => {
+  const repoPath = getRepoPath(req.params.id);
+  if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
+
+  const relPath = req.query.path || '';
+  const targetPath = path.resolve(repoPath, relPath);
+
+  // Prevent directory traversal attacks
+  if (!targetPath.startsWith(path.resolve(repoPath))) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  try {
+    if (!fs.existsSync(targetPath)) {
+      return res.status(404).json({ error: 'Path not found' });
+    }
+
+    const stats = fs.statSync(targetPath);
+    if (stats.isDirectory()) {
+      const files = fs.readdirSync(targetPath, { withFileTypes: true });
+      const entries = files
+        .filter(f => f.name !== 'node_modules' && !f.name.startsWith('.'))
+        .map(f => {
+          const fullFilePath = path.join(targetPath, f.name);
+          let size = 0;
+          try {
+            if (f.isFile()) {
+              size = fs.statSync(fullFilePath).size;
+            }
+          } catch (e) {}
+          return {
+            name: f.name,
+            type: f.isDirectory() ? 'dir' : 'file',
+            path: path.relative(repoPath, fullFilePath).replace(/\\/g, '/'),
+            size
+          };
+        })
+        .sort((a, b) => {
+          if (a.type === b.type) return a.name.localeCompare(b.name);
+          return a.type === 'dir' ? -1 : 1;
+        });
+      res.json({ type: 'dir', entries });
+    } else {
+      const content = fs.readFileSync(targetPath, 'utf8');
+      res.json({ type: 'file', content, name: path.basename(targetPath), size: stats.size });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Write content to a file in a workspace and optionally commit it
+app.post('/api/workspaces/:id/write', async (req, res) => {
+  const repoPath = getRepoPath(req.params.id);
+  if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
+
+  const { path: relPath, content, message } = req.body;
+  if (!relPath) return res.status(400).json({ error: 'File path required' });
+
+  const targetPath = path.resolve(repoPath, relPath);
+
+  // Prevent directory traversal attacks
+  if (!targetPath.startsWith(path.resolve(repoPath))) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  try {
+    // Ensure parent directory exists
+    const parentDir = path.dirname(targetPath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+
+    fs.writeFileSync(targetPath, content || '', 'utf8');
+
+    if (message) {
+      const git = simpleGit(repoPath);
+      await git.add(relPath);
+      const summary = await git.commit(message);
+      res.json({ success: true, summary });
+    } else {
+      res.json({ success: true });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Stage or unstage files
 app.post('/api/workspaces/:id/stage', async (req, res) => {
   const repoPath = getRepoPath(req.params.id);
@@ -277,7 +387,10 @@ app.post('/api/workspaces/:id/pull', async (req, res) => {
 
   try {
     const git = simpleGit(repoPath);
-    const output = await git.pull();
+    const status = await git.status();
+    const branch = status.current;
+
+    const output = await git.pull('origin', branch);
     res.json({ success: true, output });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -355,27 +468,77 @@ app.delete('/api/workspaces/:id/branches/:name', async (req, res) => {
 // Get commit log
 app.get('/api/workspaces/:id/log', async (req, res) => {
   const repoPath = getRepoPath(req.params.id);
-  const { count = 20, branch } = req.query;
-
   if (!repoPath) return res.status(400).json({ error: 'Invalid workspace ID' });
 
   try {
     const git = simpleGit(repoPath);
-    const logOptions = { maxCount: parseInt(count) || 20 };
-    if (branch) logOptions.from = branch;
-    const log = await git.log(logOptions);
-    res.json({
-      total: log.total,
-      latest: log.latest,
-      commits: log.all.map(c => ({
-        hash: c.hash,
-        date: c.date,
-        message: c.message,
-        author_name: c.author_name,
-        author_email: c.author_email,
-        refs: c.refs
-      }))
-    });
+    let stdout = '';
+    try {
+      stdout = await git.raw([
+        'log',
+        '--graph',
+        '--all',
+        '--date=short',
+        '-n',
+        '30',
+        '--format=format:%H%n%h%n%d%n%s%n%ad%n%an%nCOMMIT_END'
+      ]);
+    } catch (e) {
+      if (e.message.includes('does not have any commits yet') || e.message.includes('bad default revision')) {
+        return res.json([]);
+      }
+      throw e;
+    }
+
+    const lines = stdout.split('\n');
+    const result = [];
+    let i = 0;
+
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line && i === lines.length - 1) {
+        i++;
+        continue;
+      }
+
+      // Check if this line starts a commit block
+      const hasHash = line.match(/([a-f0-9]{40})$/i);
+      const hasCommitEnd = i + 6 < lines.length && lines[i + 6].endsWith('COMMIT_END');
+
+      if (hasHash && hasCommitEnd) {
+        const hash = hasHash[1];
+        const graphLen = line.length - 40;
+        const graph = line.substring(0, graphLen);
+
+        const shortHash = lines[i + 1].substring(graphLen).trim();
+        const refs = lines[i + 2].substring(graphLen).trim();
+        const subject = lines[i + 3].substring(graphLen).trim();
+        const date = lines[i + 4].substring(graphLen).trim();
+        const author = lines[i + 5].substring(graphLen).trim();
+
+        result.push({
+          type: 'commit',
+          graph,
+          hash,
+          shortHash,
+          refs,
+          subject,
+          date,
+          author
+        });
+
+        i += 7;
+      } else {
+        // Pure graph transition line
+        result.push({
+          type: 'graph',
+          graph: line
+        });
+        i++;
+      }
+    }
+
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
