@@ -10,9 +10,11 @@ export const apiCall = async (
   const cleanIp = targetIp.replace(/^(https?:\/\/)?/, '');
   const url = `http://${cleanIp}${path}`;
   
-  const headers: any = {
-    'Content-Type': 'application/json',
-  };
+  const headers: any = {};
+  
+  if (body !== null && body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+  }
   
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
