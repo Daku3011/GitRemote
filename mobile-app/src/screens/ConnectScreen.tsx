@@ -1,176 +1,301 @@
 import React, { useState } from 'react';
 import {
-  View,
+  StyleSheet,
   Text,
-  TextInput,
+  View,
   TouchableOpacity,
   ScrollView,
-  ActivityIndicator,
-  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ConnectionMode } from '../types';
-import { pair } from '../api';
-import { s, colors } from '../styles';
+import { COLORS } from '../utils/theme';
+import { Input } from '../components/Input';
+import { Button } from '../components/Button';
+import { Card } from '../components/Card';
 
 interface ConnectScreenProps {
-  connectionMode: ConnectionMode;
-  setConnectionMode: (mode: ConnectionMode) => void;
-  onConnected: (ip: string, token: string) => void;
-  onGithubConnected: (token: string) => void;
+  connectionMode: 'pc' | 'github';
+  setConnectionMode: (mode: 'pc' | 'github') => void;
+  serverIp: string;
+  setServerIp: (ip: string) => void;
+  pairingCode: string;
+  setPairingCode: (code: string) => void;
+  githubToken: string;
+  setGithubToken: (token: string) => void;
+  loading: boolean;
+  scanProgress: string;
+  onPairAgent: (ip: string, code: string) => Promise<boolean>;
+  onAuthorizeGithub: (token: string) => Promise<boolean>;
+  onDiscoverAgent: (ipInput: string) => Promise<string | null>;
 }
 
-export default function ConnectScreen({
+export const ConnectScreen: React.FC<ConnectScreenProps> = ({
   connectionMode,
   setConnectionMode,
-  onConnected,
-  onGithubConnected,
-}: ConnectScreenProps) {
-  const [serverIp, setServerIp] = useState('');
-  const [pairingCode, setPairingCode] = useState('');
-  const [githubToken, setGithubToken] = useState('');
-  const [loading, setLoading] = useState(false);
+  serverIp,
+  setServerIp,
+  pairingCode,
+  setPairingCode,
+  githubToken,
+  setGithubToken,
+  loading,
+  scanProgress,
+  onPairAgent,
+  onAuthorizeGithub,
+  onDiscoverAgent,
+}) => {
+  const [ipError, setIpError] = useState('');
+  const [codeError, setCodeError] = useState('');
+  const [tokenError, setTokenError] = useState('');
 
-  const handlePair = async () => {
+  const handlePCConnect = async () => {
+    let valid = true;
     if (!serverIp) {
-      Alert.alert('Error', 'Please enter your PC IP address & port (e.g. 192.168.1.50:3011)');
-      return;
+      setIpError('Server IP and port is required');
+      valid = false;
+    } else {
+      setIpError('');
     }
+
     if (!pairingCode) {
-      Alert.alert('Error', 'Please enter the 4-digit pairing code shown in the PC server console.');
-      return;
+      setCodeError('4-digit pairing code is required');
+      valid = false;
+    } else if (pairingCode.length !== 4) {
+      setCodeError('Pairing code must be 4 digits');
+      valid = false;
+    } else {
+      setCodeError('');
     }
 
-    setLoading(true);
-    try {
-      const data = await pair(serverIp.trim(), pairingCode.trim());
-      const newToken = data.token;
-
-      await AsyncStorage.setItem('server_ip', serverIp.trim());
-      await AsyncStorage.setItem('auth_token', newToken);
-      await AsyncStorage.setItem('connection_mode', 'pc');
-      onConnected(serverIp.trim(), newToken);
-    } catch (err: any) {
-      const msg = err.message || '';
-      const isTimeout = msg.includes('abort') || msg.includes('cancel') || msg.includes('timeout');
-      Alert.alert(
-        'Pairing Failed',
-        isTimeout
-          ? 'Connection timed out (30s).\n\nEnsure:\n• PC Agent is running (npm start in pc-agent/)\n• Firewall allows port 3011\n• Phone and PC are on the same WiFi'
-          : msg || 'Could not connect to PC Agent. Check the IP and make sure the server is running.'
-      );
-    } finally {
-      setLoading(false);
+    if (valid) {
+      await onPairAgent(serverIp, pairingCode);
     }
   };
 
-  const handleGithubPair = async () => {
-    if (!githubToken.trim()) {
-      Alert.alert('Error', 'Please enter a GitHub Personal Access Token (PAT).');
+  const handleGithubConnect = async () => {
+    if (!githubToken) {
+      setTokenError('Personal Access Token is required');
       return;
     }
+    setTokenError('');
+    await onAuthorizeGithub(githubToken);
+  };
 
-    setLoading(true);
-    try {
-      await AsyncStorage.setItem('github_token', githubToken.trim());
-      await AsyncStorage.setItem('connection_mode', 'github');
-      onGithubConnected(githubToken.trim());
-    } catch (err: any) {
-      Alert.alert('Pairing Failed', err.message);
-    } finally {
-      setLoading(false);
-    }
+  const handleAutoDiscover = async () => {
+    await onDiscoverAgent(serverIp);
   };
 
   return (
-    <ScrollView contentContainerStyle={s.scrollContainer} keyboardShouldPersistTaps="handled">
-      <View style={s.modeTabs}>
-        <TouchableOpacity
-          style={[s.modeTabButton, connectionMode === 'pc' ? s.modeTabActive : {}]}
-          onPress={() => setConnectionMode('pc')}
-        >
-          <Text style={[s.modeTabText, connectionMode === 'pc' ? s.modeTabActiveText : {}]}>🖥️ PC Agent</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[s.modeTabButton, connectionMode === 'github' ? s.modeTabActive : {}]}
-          onPress={() => setConnectionMode('github')}
-        >
-          <Text style={[s.modeTabText, connectionMode === 'github' ? s.modeTabActiveText : {}]}>☁️ GitHub Cloud</Text>
-        </TouchableOpacity>
-      </View>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
+        <View style={styles.modeTabs}>
+          <TouchableOpacity
+            style={[styles.modeTabButton, connectionMode === 'pc' ? styles.modeTabActive : {}]}
+            onPress={() => setConnectionMode('pc')}
+          >
+            <Text style={[styles.modeTabText, connectionMode === 'pc' ? styles.modeTabActiveText : {}]}>
+              🖥️ PC Agent
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeTabButton, connectionMode === 'github' ? styles.modeTabActive : {}]}
+            onPress={() => setConnectionMode('github')}
+          >
+            <Text style={[styles.modeTabText, connectionMode === 'github' ? styles.modeTabActiveText : {}]}>
+              ☁️ GitHub Cloud
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-      {connectionMode === 'pc' ? (
-        <View style={s.card}>
-          <Text style={s.appTitle}>⚡ PC Local Sync</Text>
-          <Text style={s.subtitle}>Review files and execute commits on your local machine.</Text>
+        {connectionMode === 'pc' ? (
+          <Card style={styles.card}>
+            <Text style={styles.appTitle}>⚡ PC Local Sync</Text>
+            <Text style={styles.subtitle}>
+              Review files, inspect changes, and commit on your local PC.
+            </Text>
 
-          <View style={s.inputGroup}>
-            <Text style={s.inputLabel}>PC Server IP & Port</Text>
-            <TextInput
-              style={s.input}
+            <Input
+              label="PC Server IP & Port"
               placeholder="e.g. 192.168.1.50:3011"
-              placeholderTextColor="#6B7280"
               value={serverIp}
               onChangeText={setServerIp}
+              error={ipError}
               autoCapitalize="none"
               autoCorrect={false}
             />
-          </View>
 
-          <View style={s.inputGroup}>
-            <Text style={s.inputLabel}>4-Digit Pairing Code</Text>
-            <TextInput
-              style={s.input}
+            <Input
+              label="4-Digit Pairing Code"
               placeholder="Check PC terminal console"
-              placeholderTextColor="#6B7280"
               value={pairingCode}
               onChangeText={setPairingCode}
+              error={codeError}
               keyboardType="number-pad"
               maxLength={4}
             />
-          </View>
 
-          <TouchableOpacity style={s.primaryButton} onPress={handlePair} disabled={loading}>
-            {loading ? (
-              <ActivityIndicator color="#0F172A" />
-            ) : (
-              <Text style={s.buttonText}>Connect Local Agent</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={s.card}>
-          <Text style={s.appTitle}>☁️ GitHub Cloud Mode</Text>
-          <Text style={s.subtitle}>Connect directly to GitHub API when your PC is turned off.</Text>
+            {scanProgress ? (
+              <View style={styles.progressContainer}>
+                <ActivityIndicator color={COLORS.primary} size="small" />
+                <Text style={styles.progressText}>{scanProgress}</Text>
+              </View>
+            ) : null}
 
-          <View style={s.inputGroup}>
-            <Text style={s.inputLabel}>GitHub Personal Access Token (PAT)</Text>
-            <TextInput
-              style={s.input}
+            <View style={styles.buttonGroup}>
+              <Button
+                title="Connect Local Agent"
+                onPress={handlePCConnect}
+                loading={loading && !scanProgress}
+                style={styles.actionBtn}
+              />
+              
+              <Button
+                title="🔍 Auto-Discover PC"
+                onPress={handleAutoDiscover}
+                variant="outline"
+                disabled={loading}
+                style={styles.scanBtn}
+              />
+            </View>
+          </Card>
+        ) : (
+          <Card style={styles.card}>
+            <Text style={styles.appTitle}>☁️ GitHub Cloud Mode</Text>
+            <Text style={styles.subtitle}>
+              Connect directly to GitHub REST API when your companion computer is shut down.
+            </Text>
+
+            <Input
+              label="GitHub Personal Access Token (PAT)"
               placeholder="Paste token starting with ghp_ or github_pat_"
-              placeholderTextColor="#6B7280"
               value={githubToken}
               onChangeText={setGithubToken}
+              error={tokenError}
               secureTextEntry
               autoCapitalize="none"
               autoCorrect={false}
             />
-          </View>
 
-          <TouchableOpacity style={s.primaryButton} onPress={handleGithubPair} disabled={loading}>
-            {loading ? (
-              <ActivityIndicator color="#0F172A" />
-            ) : (
-              <Text style={s.buttonText}>Authorize GitHub Account</Text>
-            )}
-          </TouchableOpacity>
+            <Button
+              title="Authorize GitHub Account"
+              onPress={handleGithubConnect}
+              loading={loading}
+              variant="secondary"
+            />
+          </Card>
+        )}
+
+        <View style={styles.infoCard}>
+          <Text style={styles.infoTitle}>🛡️ Sandboxed Security</Text>
+          <Text style={styles.infoText}>
+            Pairing tokens and access credentials are strictly stored in the secure local Keychain storage of your phone. They are only sent directly to your local PC Agent server or the official secure GitHub REST API endpoints.
+          </Text>
         </View>
-      )}
-
-      <View style={s.infoCard}>
-        <Text style={s.infoTitle}>💡 Security Notice</Text>
-        <Text style={s.infoText}>Your server pairing keys and GitHub personal access tokens are stored strictly inside your phone's secure local Sandbox. They are never sent to any external server besides GitHub's official REST API.</Text>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
-}
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  scrollContainer: {
+    padding: 20,
+    justifyContent: 'center',
+    minHeight: '100%',
+  },
+  modeTabs: {
+    flexDirection: 'row',
+    backgroundColor: '#161D30',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 20,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+  },
+  modeTabButton: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  modeTabActive: {
+    backgroundColor: COLORS.surface,
+  },
+  modeTabText: {
+    color: COLORS.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  modeTabActiveText: {
+    color: COLORS.secondary,
+  },
+  card: {
+    marginBottom: 20,
+  },
+  appTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: COLORS.text,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: COLORS.textMuted,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  buttonGroup: {
+    marginTop: 10,
+  },
+  actionBtn: {
+    marginBottom: 12,
+  },
+  scanBtn: {
+    borderColor: COLORS.border,
+  },
+  progressContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surfaceDark,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  progressText: {
+    color: COLORS.textMuted,
+    fontSize: 13,
+    fontWeight: '500',
+    marginLeft: 10,
+    flex: 1,
+  },
+  infoCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+  },
+  infoTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.text,
+    marginBottom: 8,
+  },
+  infoText: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    lineHeight: 18,
+  },
+});
+export default ConnectScreen;

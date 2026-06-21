@@ -1,133 +1,76 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  ActivityIndicator,
-  Alert,
-} from 'react-native';
-import { s } from '../styles';
+import React from 'react';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity } from 'react-native';
+import { COLORS } from '../utils/theme';
+import { Header } from '../components/Header';
 
 interface GithubTreeScreenProps {
-  repo: any;
-  githubToken: string;
-  onOpenFile: (file: any) => void;
-  onBack: () => void;
+  githubSelectedRepo: any;
+  githubPathStack: string[];
+  githubContents: any[];
+  onDirectoryPress: (dirName: string) => Promise<void>;
+  onDirectoryBack: () => Promise<void>;
+  onOpenRepoScreen: () => void;
+  onOpenFile: (file: any) => Promise<any>;
 }
 
-export default function GithubTreeScreen({
-  repo,
-  githubToken,
+export const GithubTreeScreen: React.FC<GithubTreeScreenProps> = ({
+  githubSelectedRepo,
+  githubPathStack,
+  githubContents,
+  onDirectoryPress,
+  onDirectoryBack,
+  onOpenRepoScreen,
   onOpenFile,
-  onBack,
-}: GithubTreeScreenProps) {
-  const [contents, setContents] = useState<any[]>([]);
-  const [pathStack, setPathStack] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+}) => {
+  if (!githubSelectedRepo) return null;
 
-  const fetchContents = async (stack: string[]) => {
-    setLoading(true);
-    try {
-      const pathStr = stack.join('/');
-      const url = pathStr
-        ? `https://api.github.com/repos/${repo.owner.login}/${repo.name}/contents/${pathStr}`
-        : `https://api.github.com/repos/${repo.owner.login}/${repo.name}/contents/`;
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `token ${githubToken}`,
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'GitMobileToPC',
-        },
-      });
-      if (!response.ok) throw new Error(`GitHub contents fetch failed: ${response.status}`);
-      const data = await response.json();
-      const sorted = Array.isArray(data)
-        ? data.sort((a: any, b: any) => {
-            if (a.type === b.type) return a.name.localeCompare(b.name);
-            return a.type === 'dir' ? -1 : 1;
-          })
-        : [];
-      setContents(sorted);
-    } catch (err: any) {
-      Alert.alert('Error', 'Failed to read repository contents: ' + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const currentPathStr = githubPathStack.length > 0 ? `/${githubPathStack.join('/')}` : '/';
 
-  useEffect(() => {
-    fetchContents([]);
-  }, []);
-
-  const handleDirectoryPress = async (dirName: string) => {
-    const newStack = [...pathStack, dirName];
-    setPathStack(newStack);
-    await fetchContents(newStack);
-  };
-
-  const handleDirectoryBack = async () => {
-    if (pathStack.length > 0) {
-      const newStack = [...pathStack];
-      newStack.pop();
-      setPathStack(newStack);
-      await fetchContents(newStack);
+  const handleBackPress = () => {
+    if (githubPathStack.length > 0) {
+      onDirectoryBack();
     } else {
-      onBack();
+      onOpenRepoScreen();
     }
   };
-
-  if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0B0F19' }}>
-        <ActivityIndicator size="large" color="#3B82F6" />
-      </View>
-    );
-  }
 
   return (
-    <View style={{ flex: 1 }}>
-      <View style={s.header}>
-        <TouchableOpacity style={s.backButton} onPress={handleDirectoryBack}>
-          <Text style={s.backButtonText}>
-            {pathStack.length > 0 ? '⬅ Back' : '⬅ Repos'}
-          </Text>
-        </TouchableOpacity>
-        <View style={{ flex: 1, marginLeft: 15 }}>
-          <Text style={s.headerTitle} numberOfLines={1}>{repo.name}</Text>
-          <Text style={s.headerSubtitle}>
-            /{pathStack.join('/')} ({repo.default_branch})
-          </Text>
-        </View>
-      </View>
+    <View style={styles.container}>
+      <Header
+        title={githubSelectedRepo.name}
+        subtitle={`${currentPathStr} (${githubSelectedRepo.default_branch})`}
+        onBack={handleBackPress}
+        backText={githubPathStack.length > 0 ? 'Back' : 'Repos'}
+      />
 
-      <ScrollView contentContainerStyle={s.listContainer}>
-        {contents.length === 0 ? (
-          <View style={s.emptyContainer}>
-            <Text style={s.emptyText}>Empty directory folder.</Text>
+      <ScrollView contentContainerStyle={styles.listContainer}>
+        {githubContents.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>Empty directory folder.</Text>
           </View>
         ) : (
-          contents.map((item) => (
+          githubContents.map((item) => (
             <TouchableOpacity
               key={item.sha}
-              style={s.fileRow}
+              style={styles.fileRow}
               onPress={() => {
                 if (item.type === 'dir') {
-                  handleDirectoryPress(item.name);
+                  onDirectoryPress(item.name);
                 } else {
                   onOpenFile(item);
                 }
               }}
+              activeOpacity={0.7}
             >
-              <View style={{ flex: 1, paddingVertical: 14 }}>
-                <Text style={s.filePathText}>
-                  {item.type === 'dir' ? '📁 ' : '📄 '}
-                  {item.name}
+              <View style={styles.fileCol}>
+                <Text style={styles.fileLabel}>
+                  {item.type === 'dir' ? '📁' : '📄'}
                 </Text>
+                <Text style={styles.filePathText}>{item.name}</Text>
               </View>
               {item.type === 'file' && (
-                <View style={s.diffBadge}>
-                  <Text style={s.diffBadgeText}>Open</Text>
+                <View style={styles.openBadge}>
+                  <Text style={styles.openBadgeText}>View</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -136,4 +79,65 @@ export default function GithubTreeScreen({
       </ScrollView>
     </View>
   );
-}
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  listContainer: {
+    padding: 16,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 120,
+  },
+  emptyText: {
+    color: COLORS.textMuted,
+    fontSize: 14,
+  },
+  fileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.surface,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 8,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+  },
+  fileCol: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  fileLabel: {
+    fontSize: 16,
+    marginRight: 12,
+  },
+  filePathText: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  openBadge: {
+    backgroundColor: COLORS.surfaceDark,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  openBadgeText: {
+    color: COLORS.secondary,
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+});
+export default GithubTreeScreen;

@@ -12,36 +12,36 @@ import { COLORS, FONTS } from '../utils/theme';
 import { Header } from '../components/Header';
 import { Button } from '../components/Button';
 
-interface GithubFileScreenProps {
-  githubSelectedRepo: any;
-  githubSelectedFile: any;
-  githubFileContent: string;
-  setGithubFileContent: (val: string) => void;
-  githubCommitMessage: string;
-  setGithubCommitMessage: (val: string) => void;
-  githubIsEditing: boolean;
-  setGithubIsEditing: (val: boolean) => void;
+interface LocalFileScreenProps {
+  selectedWorkspace: any;
+  localSelectedFile: any;
+  localFileContent: string;
+  setLocalFileContent: (val: string) => void;
+  localCommitMessage: string;
+  setLocalCommitMessage: (val: string) => void;
+  localIsEditing: boolean;
+  setLocalIsEditing: (val: boolean) => void;
   onBack: () => void;
   onCommit: (message: string) => Promise<boolean>;
 }
 
-export const GithubFileScreen: React.FC<GithubFileScreenProps> = ({
-  githubSelectedRepo,
-  githubSelectedFile,
-  githubFileContent,
-  setGithubFileContent,
-  githubCommitMessage,
-  setGithubCommitMessage,
-  githubIsEditing,
-  setGithubIsEditing,
+export const LocalFileScreen: React.FC<LocalFileScreenProps> = ({
+  selectedWorkspace,
+  localSelectedFile,
+  localFileContent,
+  setLocalFileContent,
+  localCommitMessage,
+  setLocalCommitMessage,
+  localIsEditing,
+  setLocalIsEditing,
   onBack,
   onCommit,
 }) => {
-  if (!githubSelectedRepo || !githubSelectedFile) return null;
+  if (!selectedWorkspace || !localSelectedFile) return null;
 
   const handleCommitSubmit = async () => {
-    if (githubCommitMessage.trim()) {
-      await onCommit(githubCommitMessage);
+    if (localCommitMessage.trim()) {
+      await onCommit(localCommitMessage);
     }
   };
 
@@ -51,40 +51,40 @@ export const GithubFileScreen: React.FC<GithubFileScreenProps> = ({
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <Header
-        title={githubSelectedFile.name}
-        subtitle={`Size: ${(githubSelectedFile.size / 1024).toFixed(2)} KB`}
+        title={localSelectedFile.name}
+        subtitle={`Size: ${(localSelectedFile.size / 1024).toFixed(2)} KB (local)`}
         onBack={onBack}
         rightElement={
           <Button
-            title={githubIsEditing ? 'Cancel' : 'Edit'}
-            onPress={() => setGithubIsEditing(!githubIsEditing)}
-            variant={githubIsEditing ? 'danger' : 'secondary'}
+            title={localIsEditing ? 'Cancel' : 'Edit'}
+            onPress={() => setLocalIsEditing(!localIsEditing)}
+            variant={localIsEditing ? 'danger' : 'secondary'}
             size="small"
           />
         }
       />
 
-      {githubIsEditing ? (
+      {localIsEditing ? (
         <View style={styles.editorContainer}>
           <TextInput
             style={styles.codeEditor}
             multiline
             autoCapitalize="none"
             autoCorrect={false}
-            value={githubFileContent}
-            onChangeText={setGithubFileContent}
+            value={localFileContent}
+            onChangeText={setLocalFileContent}
           />
           <View style={styles.commitBox}>
             <TextInput
               style={styles.commitInput}
-              placeholder="Commit message (e.g. fix: update alignment)"
+              placeholder="Commit message (e.g. fix: solve layout bug)"
               placeholderTextColor="#6B7280"
-              value={githubCommitMessage}
-              onChangeText={setGithubCommitMessage}
+              value={localCommitMessage}
+              onChangeText={setLocalCommitMessage}
               multiline
             />
             <Button
-              title="Commit directly to GitHub"
+              title="Save & Commit to PC"
               onPress={handleCommitSubmit}
             />
           </View>
@@ -93,7 +93,7 @@ export const GithubFileScreen: React.FC<GithubFileScreenProps> = ({
         <ScrollView style={styles.diffScroll}>
           <ScrollView style={styles.diffScroll} horizontal={true}>
             <View style={styles.diffCodeWrapper}>
-              {githubFileContent.split('\n').map((line, idx) => (
+              {localFileContent.split('\n').map((line, idx) => (
                 <View key={idx} style={styles.diffLineContainer}>
                   <Text style={styles.lineNumber}>{idx + 1}</Text>
                   <Text style={styles.diffTextNormal}>{line}</Text>
@@ -169,4 +169,4 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 });
-export default GithubFileScreen;
+export default LocalFileScreen;
