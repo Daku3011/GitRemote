@@ -344,7 +344,7 @@ export const usePCAgent = () => {
     setScanProgress('Initializing network scan...');
     
     // Guess base subnet: check user entered IP, otherwise standard IP classes
-    let baseSubnet = '192.168.1';
+    let baseSubnet = '192.168.29';
     let port = '3011';
     
     if (currentIpInput && currentIpInput.includes('.')) {

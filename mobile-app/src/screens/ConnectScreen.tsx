@@ -221,9 +221,11 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   logoImage: {
-    width: 85,
-    height: 85,
-    marginBottom: 8,
+    width: 100,
+    height: 100,
+    marginBottom: 20,
+    borderRadius: 20,
+    backgroundColor: '#1a1a1a',
   },
   logoText: {
     color: COLORS.text,
